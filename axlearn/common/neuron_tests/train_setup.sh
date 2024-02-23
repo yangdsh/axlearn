@@ -29,6 +29,9 @@ echo $DISTRIBUTED_ARGS
 #export XLA_USE_SPMD=1
 #export TF_CPP_MIN_LOG_LEVEL=0 # Enable SPMD verbose logging - 0 means most verbose
 #export TF_CPP_MAX_VLOG_LEVEL=2 # Needs above flag for logging but goes in reverse. 0 means no log
+#export TF_CPP_MIN_LOG_LEVEL=0
+#export TF_CPP_MAX_VLOG_LEVEL=10
+
 export PJRT_DEVICE="NEURON"
 export NEURON_RT_NUM_CORES=32
 export NEURON_PJRT_PROCESS_INDEX=$NODEID
@@ -60,3 +63,4 @@ export NEURON_CC_FLAGS="--dump=./compiler_dump --framework=XLA --model-type tran
 export NEURON_RT_STOCHASTIC_ROUNDING_EN=1
 export NEURON_RT_ASYNC_EXEC_MAX_INFLIGHT_REQUESTS=5
 
+export JAX_TRACEBACK_FILTERING=off # this enables verbose frame logging in jax
