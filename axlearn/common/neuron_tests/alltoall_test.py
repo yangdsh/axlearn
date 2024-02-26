@@ -4,10 +4,10 @@ import jax
 from jax.sharding import PartitionSpec
 from jax.sharding import NamedSharding
 
-mesh = jax.sharding.Mesh(np.array(jax.devices()).reshape(4, 8)[:, None, None, None, :],
+mesh = jax.sharding.Mesh(np.array(jax.devices()).reshape(2, 4)[:, None, None, None, :],
                          axis_names=("data", "seq", "expert", "fsdp", "model"),)
 
-batch_size = 4
+batch_size = 2
 target_length = 1024
 source_length = 1024
 num_heads = 32

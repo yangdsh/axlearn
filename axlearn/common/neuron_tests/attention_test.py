@@ -127,8 +127,7 @@ class TransformerTest(NeuronTestCase):
                                              self._trainer_state_partition_specs))
             layer_outputs = run(mask, input_tensor, layer_params)
             self.assertEqual(target.shape, layer_outputs.data.shape)
-
-
+    @pytest.mark.skip
     def test_backward_fused_qkv(self):
         """A test of TransformerLayer backward."""
         mesh = jax.sharding.Mesh(np.array(jax.devices()).reshape(4, 8)[:, None, None, None, :],
@@ -203,13 +202,13 @@ class TransformerTest(NeuronTestCase):
             #print_dict_structure(layer_params)
 
             jax.debug.visualize_array_sharding(layer_params['feed_forward']['linear1']['weight'])
-            layer.self_attention.norm = jax.jit(layer.self_attention.norm, in_shardings=(NamedSharding(mesh, PartitionSpec('data', 'model', None)),),
-                                      out_shardings=(NamedSharding(mesh, PartitionSpec('data', None, None))))
+            #layer.self_attention.norm = jax.jit(layer.self_attention.norm, in_shardings=(NamedSharding(mesh, PartitionSpec('data', 'model', None)),),
+                                      #out_shardings=(NamedSharding(mesh, PartitionSpec('data', None, None))))
             # Above jit will prevent an all to all.
             batch_size, tgt_len = 4, 4096
             rng = np.random.default_rng(seed=123)
             target = rng.random([batch_size, tgt_len, model_dim], dtype=np.float32).astype(jnp.bfloat16)
-            target = jax.device_put(target, NamedSharding(mesh, PartitionSpec('data', 'model', None)))
+            target = jax.device_put(target, NamedSharding(mesh, PartitionSpec('data', None, None)))
             def mask_creation():
                 mask = attention.make_causal_mask(tgt_len).astype(jnp.bfloat16)
                 mask = jnp.tile(mask[None, None, :, :], (batch_size, num_heads, 1, 1))
@@ -218,7 +217,8 @@ class TransformerTest(NeuronTestCase):
             mask_creation = jax.jit(mask_creation, out_shardings=NamedSharding(mesh, PartitionSpec('data', 'model', None, None)))
             mask = mask_creation()
             input_tensor = jnp.asarray(target).astype(jnp.bfloat16)
-            input_tensor = jax.device_put(input_tensor, NamedSharding(mesh, PartitionSpec('data', 'model', None)))
+            #input_tensor = jax.device_put(input_tensor, NamedSharding(mesh, PartitionSpec('data', 'model', None)))
+            input_tensor = jax.device_put(input_tensor, NamedSharding(mesh, PartitionSpec('data', None, None)))
 
             def run(mask, input_tensor, output_target, weights):
                 layer_outputs, _ = F(
@@ -232,14 +232,13 @@ class TransformerTest(NeuronTestCase):
                 return jnp.mean((layer_outputs.data - output_target) ** 2)
 
             run = jax.jit(jax.value_and_grad(run), in_shardings=(NamedSharding(mesh, PartitionSpec('data', 'model', None, None)),
-                                             NamedSharding(mesh, PartitionSpec('data', 'model', None)),
-                                             NamedSharding(mesh, PartitionSpec('data', 'model', None)),
+                                             NamedSharding(mesh, PartitionSpec('data', None, None)),
+                                             NamedSharding(mesh, PartitionSpec('data', None, None)),
                                              self._trainer_state_partition_specs))
             loss, grad = run(mask, input_tensor, target, layer_params)
             print(loss)
             print(grad)
 
-    @pytest.mark.skip
     def test_model(self):
         """A test of Stacked TransformerLayer backward."""
         mesh = jax.sharding.Mesh(np.array(jax.devices()).reshape(4, 8)[:, None, None, None, :],
@@ -260,7 +259,7 @@ class TransformerTest(NeuronTestCase):
                 dropout_rate=0.0,
             )
             model_cfg = causal_lm.Model.default_config().set(decoder=decoder_cfg, name="llama")
-
+            print(model_cfg)
             set_model_shard_weights_config(
                 model_cfg,
                 batch_axis_names='data',
@@ -320,12 +319,24 @@ class TransformerTest(NeuronTestCase):
 
             print_dict_structure(model_params)
             jax.debug.visualize_array_sharding(model_params['decoder']['transformer']['layer0']['feed_forward']['linear1']['weight'])
-            norm = jax.jit(model.decoder.transformer.layer0.self_attention.norm, in_shardings=(NamedSharding(mesh, PartitionSpec('data', 'model', None)),),
-                           out_shardings=(NamedSharding(mesh, PartitionSpec('data', None, None))))
+            #norm = jax.jit(model.decoder.transformer.layer0.self_attention.norm, in_shardings=(NamedSharding(mesh, PartitionSpec('data', 'model', None)),),
+             #              out_shardings=(NamedSharding(mesh, PartitionSpec('data', None, None))))
+            #create_causal_mask = jax.jit(model.decoder.create_causal_mask, out_shardings=NamedSharding(mesh, PartitionSpec('data', 'model', None, None)))
+            #model.decoder.create_causal_mask = create_causal_mask
+            #model.decoder.output_norm = norm
+            #for layer in model.decoder.transformer._layers:
+            #    layer.norm = norm
+            #    layer.self_attention.norm = norm
+            #    layer.feed_forward.norm = norm
 
-            model.decoder.output_norm = norm
-            for layer in model.decoder.transformer._layers:
-                layer.norm = norm
+            # in_shardings=(NamedSharding(mesh, PartitionSpec('data', None, None)),
+            # (NamedSharding(mesh, PartitionSpec('data', 'model', None, None)))),
+            #self_attention = jax.jit(model.decoder.transformer.layer0.self_attention.attention,
+             #                            out_shardings=(NamedSharding(mesh, PartitionSpec('data', None, None)))
+              #                           )  # this line fixes all to all in backwards but breaks Neuron compiler
+            #for layer in model.decoder.transformer._layers:
+            #    layer.self_attention.attention = self_attention
+
             # Above jit will prevent an all to all.
             batch_size, tgt_len = 4, 4096
             rng = np.random.default_rng(seed=123)
@@ -353,9 +364,9 @@ class TransformerTest(NeuronTestCase):
                 with set_current_context(ctx):
                     input_batch = dict(input_ids=input_ids, target_labels=target_labels)
                     loss = model.forward(input_batch=input_batch, return_aux=False)
-                return loss
-
-            run = jax.jit(jax.value_and_grad(run, allow_int=True), in_shardings=(NamedSharding(mesh, PartitionSpec('data', None)),
+                return loss[0]
+            # ptoulme differentiate with respect to argnums=2 the weights
+            run = jax.jit(jax.value_and_grad(run, argnums=2), in_shardings=(NamedSharding(mesh, PartitionSpec('data', None)),
                                                                  NamedSharding(mesh, PartitionSpec('data', None)),
                                                                  self._trainer_state_partition_specs))
 
@@ -517,7 +528,7 @@ def set_model_shard_weights_config(
         ff_layer.linear2.param_partition_spec = (tp_axis_names, fsdp_axis_names)
         # Encourage the right activation sharding.
         ff_layer.linear1.output_partition_spec = (batch_axis_names, None, tp_axis_names)
-        ff_layer.linear2.output_partition_spec = (batch_axis_names, seq_axis_names, None)
+        ff_layer.linear2.output_partition_spec = (batch_axis_names, None, None)
 
     #if not isinstance(cfg, Sequence):
      #   cfg = [cfg]

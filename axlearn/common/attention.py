@@ -93,7 +93,7 @@ from axlearn.common.utils import (
     check_numerics,
     get_or_none,
     shapes,
-    split_prng_key,
+    split_prng_key, with_sharding_constraint,
 )
 
 NEG_INF = -1e15
@@ -1617,6 +1617,7 @@ class MultiheadAttention(BaseLayer):
             value=value,
             attention_logit_biases=attention_logit_biases,
         )
+        output = with_sharding_constraint(output, PartitionSpec('data', None, None))
         return output
 
     def _cap_logits(self, logits: Tensor) -> Tensor:

@@ -319,6 +319,7 @@ class RMSNorm(BaseNormalizationLayer):
         }
 
     def forward(self, x: Tensor, *, paddings: Optional[Tensor] = None) -> Tensor:
+        x = with_sharding_constraint(x, PartitionSpec('data', 'model', None))
         del paddings  # paddings do not affect LayerNorm results
         cfg = self.config
         x_dtype = x.dtype
@@ -328,6 +329,7 @@ class RMSNorm(BaseNormalizationLayer):
         x = x * jax.lax.rsqrt(moment2 + cfg.eps)
         x = x.astype(x_dtype)
         x = x * self.parameters["scale"]
+        x = with_sharding_constraint(x, PartitionSpec('data', None, None))
         return x
 
 

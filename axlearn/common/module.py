@@ -110,7 +110,7 @@ class OutputCollection(NamedTuple):
             raise ValueError(f'Invalid child name "{name}"')
         if name in self:
             #raise OutputConflictError(f"{name} already present") # ptoulme hitting issues here
-            return new_output_collection()
+            pass
         child = new_output_collection()
         self.summaries[name] = child.summaries
         self.state_updates[name] = child.state_updates
