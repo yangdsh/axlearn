@@ -732,7 +732,7 @@ class LmHead(BaseLayer):
         cfg = self.config
         return dict(
             weight=ParameterSpec(
-                shape=(cfg.vocab_size, cfg.embedding_dim),
+                shape=(cfg.vocab_size, cfg.embedding_dim),  # ptoulme - storing the weight this way causes an extra transpose?
                 mesh_axes=cfg.param_partition_spec,
             )
         )

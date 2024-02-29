@@ -16,7 +16,7 @@ from axlearn.common.attention import (
 )
 from axlearn.common.base_layer import ParameterSpec, RematSpec
 from axlearn.common.causal_lm import residual_initializer_cfg, TransformerStackConfig
-from axlearn.common.decoder import Decoder
+from axlearn.common.decoder import Decoder, LmHead
 from axlearn.common.embedding import TransformerTextEmbeddings
 from axlearn.common.layers import RMSNorm, set_bias_recursively
 from axlearn.common.module import functional as F, InvocationContext, new_output_collection, set_current_context
@@ -352,6 +352,7 @@ class TransformerTest(NeuronTestCase):
 
 
             def run(input_ids, target_labels, model_params):
+                #input_ids = with_sharding_constraint(input_ids, )
                 ctx = InvocationContext(
                     name="root",
                     parent=None,
@@ -485,9 +486,10 @@ def llama_decoder_config(
         transformer=transformer_cls,
         dim=hidden_dim,
         vocab_size=vocab_size,
-        emb=TransformerTextEmbeddings.default_config().set(pos_emb=None),
+        emb=TransformerTextEmbeddings.default_config().set(pos_emb=None).set(dtype=jnp.bfloat16),
         output_norm=RMSNorm.default_config().set(eps=layer_norm_epsilon),
         dropout_rate=dropout_rate,
+        lm_head=LmHead.default_config().set(dtype=jnp.bfloat16)
     )
     return decoder
 
@@ -533,8 +535,8 @@ def set_model_shard_weights_config(
     #if not isinstance(cfg, Sequence):
      #   cfg = [cfg]
     #print(cfg.decoder)
-    cfg.decoder.emb.token_emb.param_partition_spec = (tp_axis_names, fsdp_axis_names)
-
+    cfg.decoder.emb.token_emb.param_partition_spec = (fsdp_axis_names, tp_axis_names) # shard hidden
+    cfg.decoder.lm_head.param_partition_spec = (tp_axis_names, fsdp_axis_names) # shard vocab
     for layer_cfg in [cfg.decoder.transformer.layer]: # shard the sole layer and its used for all other layers
         set_attn_partition_specs(layer_cfg.self_attention.attention)
         if layer_cfg.cross_attention is not None:

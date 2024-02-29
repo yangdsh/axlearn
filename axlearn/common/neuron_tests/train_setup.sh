@@ -30,7 +30,7 @@ echo $DISTRIBUTED_ARGS
 #export TF_CPP_MIN_LOG_LEVEL=0 # Enable SPMD verbose logging - 0 means most verbose
 #export TF_CPP_MAX_VLOG_LEVEL=2 # Needs above flag for logging but goes in reverse. 0 means no log
 #export TF_CPP_MIN_LOG_LEVEL=0
-#export TF_CPP_MAX_VLOG_LEVEL=10
+#export TF_CPP_MAX_VLOG_LEVEL=1
 
 export PJRT_DEVICE="NEURON"
 export NEURON_RT_NUM_CORES=32
