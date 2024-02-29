@@ -24,6 +24,7 @@ from axlearn.common.test_utils import NeuronTestCase, assert_allclose, dummy_seg
 from typing import Any, Callable, Dict, List, NamedTuple, Optional, Sequence, Tuple, Union
 
 from axlearn.common.utils import Tensor, VDict
+import os
 
 class TransformerTest(NeuronTestCase):
     """Tests TransformerLayer."""
@@ -241,7 +242,9 @@ class TransformerTest(NeuronTestCase):
 
     def test_model(self):
         """A test of Stacked TransformerLayer backward."""
-        mesh = jax.sharding.Mesh(np.array(jax.devices()).reshape(4, 8)[:, None, None, None, :],
+        TP_DEGREE = 8
+        DP_DEGREE = (int(os.getenv('SLURM_JOB_NUM_NODES'))*32)//TP_DEGREE
+        mesh = jax.sharding.Mesh(np.array(jax.devices()).reshape(DP_DEGREE, TP_DEGREE)[:, None, None, None, :],
                                  axis_names=("data", "seq", "expert", "fsdp", "model"),)
         with mesh:
             model_dim = 4096
@@ -338,7 +341,7 @@ class TransformerTest(NeuronTestCase):
             #    layer.self_attention.attention = self_attention
 
             # Above jit will prevent an all to all.
-            batch_size, tgt_len = 4, 4096
+            batch_size, tgt_len = DP_DEGREE, 4096
             rng = np.random.default_rng(seed=123)
 
             input_ids = jax.random.randint(
@@ -347,9 +350,18 @@ class TransformerTest(NeuronTestCase):
             target_labels = jax.random.randint(
                 jax.random.PRNGKey(123), shape=[batch_size, tgt_len], minval=-1, maxval=vocab_size
             )
-            input_ids = jax.device_put(input_ids, NamedSharding(mesh, PartitionSpec('data', None)))
-            target_labels = jax.device_put(target_labels, NamedSharding(mesh, PartitionSpec('data', None)))
+            global_shape = (batch_size, tgt_len)
+            sharding = jax.sharding.NamedSharding(mesh, PartitionSpec('data', None))
 
+            arrays = [
+                jax.device_put(input_ids[index], d)
+                for d, index in sharding.addressable_devices_indices_map(global_shape).items()]
+            input_ids = jax.make_array_from_single_device_arrays(global_shape, sharding, arrays)
+            arrays_target = [
+                jax.device_put(target_labels[index], d)
+                for d, index in sharding.addressable_devices_indices_map(global_shape).items()]
+
+            target_labels = jax.make_array_from_single_device_arrays(global_shape, sharding, arrays_target)
 
             def run(input_ids, target_labels, model_params):
                 #input_ids = with_sharding_constraint(input_ids, )
