@@ -12,7 +12,7 @@ from axlearn.common import attention, test_utils, utils, causal_lm
 from axlearn.common.attention import (
     ParallelTransformerLayer,
     TransformerLayer, scaled_hidden_dim, TransformerFeedForwardLayer, MultiheadAttention, FusedQKVLinear, QKVLinear,
-    StackedTransformerLayer, RepeatedTransformerLayer, PipelinedTransformerLayer,
+    StackedTransformerLayer, RepeatedTransformerLayer, PipelinedTransformerLayer, build_remat_spec,
 )
 from axlearn.common.base_layer import ParameterSpec, RematSpec
 from axlearn.common.causal_lm import residual_initializer_cfg, TransformerStackConfig
@@ -249,7 +249,7 @@ class TransformerTest(NeuronTestCase):
         with mesh:
             model_dim = 4096
             num_heads = 32
-            vocab_size = 2048
+            vocab_size = 32000
             stacked_layer = StackedTransformerLayer.default_config()
             decoder_cfg = llama_decoder_config(
                 stack_cfg=stacked_layer,
@@ -364,7 +364,6 @@ class TransformerTest(NeuronTestCase):
             target_labels = jax.make_array_from_single_device_arrays(global_shape, sharding, arrays_target)
 
             def run(input_ids, target_labels, model_params):
-                #input_ids = with_sharding_constraint(input_ids, )
                 ctx = InvocationContext(
                     name="root",
                     parent=None,
@@ -386,7 +385,6 @@ class TransformerTest(NeuronTestCase):
             loss, grad = run(input_ids, target_labels, model_params)
             print(loss)
             print(grad)
-
 
 def set_double_shard_weights_config(
         cfg: Union[TransformerLayer.Config, Sequence[TransformerLayer.Config]],
@@ -550,6 +548,7 @@ def set_model_shard_weights_config(
     cfg.decoder.emb.token_emb.param_partition_spec = (fsdp_axis_names, tp_axis_names) # shard hidden
     cfg.decoder.lm_head.param_partition_spec = (tp_axis_names, fsdp_axis_names) # shard vocab
     for layer_cfg in [cfg.decoder.transformer.layer]: # shard the sole layer and its used for all other layers
+        layer_cfg.remat_spec = build_remat_spec(cfg.decoder.transformer) # activation checkpointing
         set_attn_partition_specs(layer_cfg.self_attention.attention)
         if layer_cfg.cross_attention is not None:
             set_attn_partition_specs(layer_cfg.cross_attention.attention)
