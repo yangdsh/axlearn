@@ -8,7 +8,7 @@ import numpy as np
 from jax import numpy as jnp
 from jax.sharding import PartitionSpec
 from jax.sharding import NamedSharding
-from axlearn.common import attention, test_utils, utils, causal_lm
+from axlearn.common import attention, test_utils, utils, causal_lm, optimizers
 from axlearn.common.attention import (
     ParallelTransformerLayer,
     TransformerLayer, scaled_hidden_dim, TransformerFeedForwardLayer, MultiheadAttention, FusedQKVLinear, QKVLinear,
@@ -16,14 +16,17 @@ from axlearn.common.attention import (
 )
 from axlearn.common.base_layer import ParameterSpec, RematSpec
 from axlearn.common.causal_lm import residual_initializer_cfg, TransformerStackConfig
+from axlearn.common.config import config_for_function
 from axlearn.common.decoder import Decoder, LmHead
 from axlearn.common.embedding import TransformerTextEmbeddings
 from axlearn.common.layers import RMSNorm, set_bias_recursively
+from axlearn.common.learner import Learner
 from axlearn.common.module import functional as F, InvocationContext, new_output_collection, set_current_context
+from axlearn.common.optimizer_base import NestedOptParam, OptParam
 from axlearn.common.test_utils import NeuronTestCase, assert_allclose, dummy_segments_positions
 from typing import Any, Callable, Dict, List, NamedTuple, Optional, Sequence, Tuple, Union
 
-from axlearn.common.utils import Tensor, VDict
+from axlearn.common.utils import Tensor, VDict, NestedTensor
 import os
 
 class TransformerTest(NeuronTestCase):
@@ -247,13 +250,13 @@ class TransformerTest(NeuronTestCase):
         mesh = jax.sharding.Mesh(np.array(jax.devices()).reshape(DP_DEGREE, TP_DEGREE)[:, None, None, None, :],
                                  axis_names=("data", "seq", "expert", "fsdp", "model"),)
         with mesh:
-            model_dim = 4096
+            model_dim = 2048
             num_heads = 32
-            vocab_size = 32000
+            vocab_size = 512
             stacked_layer = StackedTransformerLayer.default_config()
             decoder_cfg = llama_decoder_config(
                 stack_cfg=stacked_layer,
-                num_layers=4,
+                num_layers=1,
                 hidden_dim=model_dim,
                 num_heads=num_heads,
                 vocab_size=vocab_size,
@@ -383,8 +386,37 @@ class TransformerTest(NeuronTestCase):
                                                                  self._trainer_state_partition_specs))
 
             loss, grad = run(input_ids, target_labels, model_params)
-            print(loss)
-            print(grad)
+            print(f'Loss = {loss}')
+            optimizer_step = True
+            if optimizer_step: # easy hook to turn on / off optimizer step
+                adamw = config_for_function(optimizers.adamw_optimizer).set(
+                    learning_rate=1e-4, b1=0.9, b2=0.95, eps=1e-6
+                )
+                learn_cfg = Learner.default_config().set(
+                    name="test", optimizer=adamw)
+                learner: Learner = learn_cfg.instantiate(parent=None)
+                _model_param_specs = model.create_parameter_specs_recursively()
+                state = learner.init(_opt_params(model_params, _model_param_specs))
+                opt_params = _opt_params(model_params, _model_param_specs)
+                def optimizer_step(state, grads, params):
+                    updated_params, output_collection = F(
+                        learner,
+                        method="update",
+                        is_training=True,
+                        prng_key=jax.random.PRNGKey(123),
+                        state=state,
+                        inputs=dict(
+                            gradients=grads,
+                            model_params=params,
+                            state_updates={},
+                        ),
+                    )
+                    return updated_params
+                #optimizer_step = jax.jit(optimizer_step)
+
+                updated_params = optimizer_step(state, grad, opt_params)
+                print(updated_params)
+
 
 def set_double_shard_weights_config(
         cfg: Union[TransformerLayer.Config, Sequence[TransformerLayer.Config]],
@@ -554,3 +586,21 @@ def set_model_shard_weights_config(
             set_attn_partition_specs(layer_cfg.cross_attention.attention)
         if isinstance(layer_cfg.feed_forward, TransformerFeedForwardLayer.Config):
             set_ffn_partition_specs(layer_cfg.feed_forward)
+
+
+# ptoulme - taken from Trainer
+def _opt_params(model_params: NestedTensor, _model_param_specs) -> NestedOptParam:
+    """Returns a tree of OptParam for Learner.{init,update}."""
+    # self._model_param_specs can be incomplete. Complete it first.
+    specs = utils.complete_partition_spec_tree(
+        jax.tree_util.tree_structure(model_params), _model_param_specs
+    )
+    return jax.tree_util.tree_map(
+        lambda param, spec: OptParam(
+            value=param,
+            factorization_spec=spec.factorization if spec is not None else None,
+            weight_decay_scale=spec.weight_decay_scale if spec is not None else 1.0,
+        ),
+        model_params,
+        specs,
+    )
