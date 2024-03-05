@@ -656,18 +656,6 @@ class Decoder(DecodingMixin, BaseLayer):
         )
         return updated_states, outputs
 
-    def create_causal_mask(self, input_ids, num_heads):
-        batch_size, seq_len = input_ids.shape
-
-        # Create a 2D lower triangular matrix of shape [seq_len, seq_len]
-        qk_mask = jnp.tril(jnp.ones((seq_len, seq_len), dtype=bool))
-
-        # Add batch and num_heads dimensions and repeat the mask accordingly
-        qk_mask = jnp.expand_dims(qk_mask, axis=(0, 1))
-        qk_mask = jnp.broadcast_to(qk_mask, (batch_size, num_heads, seq_len, seq_len))
-
-        return qk_mask
-
     def compute_attention_logit_biases(
         self,
         input_ids: Tensor,
@@ -700,9 +688,6 @@ class Decoder(DecodingMixin, BaseLayer):
         if (segment_ids is None) != (positions is None):
             raise ValueError("segment_ids and positions must be provided together")
         cfg = self.config
-        if jax.default_backend() == 'neuron': # Neuron does not support sequence packing
-            mask = self.create_causal_mask(input_ids, cfg.transformer.layer.self_attention.attention.num_heads)
-            return mask
         if segment_ids is None or positions is None:
             segment_ids = _segment_ids_from_causal_input_ids(
                 input_ids, pad_token_id=cfg.pad_token_id

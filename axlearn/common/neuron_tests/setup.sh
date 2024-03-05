@@ -16,10 +16,10 @@ sudo apt-get update -y && sudo apt-get install -y linux-headers-$(uname -r)
 sudo apt-get remove -y aws-neuronx-devtools || true
 sudo apt-get remove -y aws-neuronx-tools aws-neuronx-collectives aws-neuronx-dkms aws-neuronx-runtime-lib
 # Install Neuron OS packages and dependencies
-#sudo dpkg -i /shared/apoorvgu/aws-neuronx-runtime-lib-2.20.22.0-1b3ca6425.deb
-#sudo dpkg -i /shared/apoorvgu/aws-neuronx-collectives-2.20.22.0-c101c322e.deb
-sudo dpkg -i aws-neuronx-runtime-lib-2.x.9937.0-b6de4480f.deb
-sudo apt-get -o Dpkg::Options::="--force-overwrite" install --reinstall --allow-downgrades -y aws-neuronx-dkms aws-neuronx-tools aws-neuronx-collectives=2.*
+sudo dpkg -i /shared/apoorvgu/aws-neuronx-runtime-lib-2.20.22.0-1b3ca6425.deb
+sudo dpkg -i /shared/apoorvgu/aws-neuronx-collectives-2.20.22.0-c101c322e.deb
+#sudo dpkg -i aws-neuronx-runtime-lib-2.x.9937.0-b6de4480f.deb
+sudo apt-get -o Dpkg::Options::="--force-overwrite" install --reinstall --allow-downgrades -y aws-neuronx-dkms aws-neuronx-tools
 
 TOKEN=`curl -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600"` && INSTANCE_ID=$(curl -H "X-aws-ec2-metadata-token: $TOKEN" -s  http://169.254.169.254/latest/meta-data/instance-id)
 echo "instance_id:$INSTANCE_ID hostname:$(hostname)"

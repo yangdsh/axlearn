@@ -256,7 +256,7 @@ class TransformerTest(NeuronTestCase):
             stacked_layer = StackedTransformerLayer.default_config()
             decoder_cfg = llama_decoder_config(
                 stack_cfg=stacked_layer,
-                num_layers=1,
+                num_layers=4,
                 hidden_dim=model_dim,
                 num_heads=num_heads,
                 vocab_size=vocab_size,
@@ -345,13 +345,14 @@ class TransformerTest(NeuronTestCase):
 
             # Above jit will prevent an all to all.
             batch_size, tgt_len = DP_DEGREE, 4096
+            seq_len = 2048 # the individual seq length packed into 4096
             rng = np.random.default_rng(seed=123)
 
             input_ids = jax.random.randint(
-                jax.random.PRNGKey(123), shape=[batch_size, tgt_len], minval=0, maxval=vocab_size
+                jax.random.PRNGKey(123), shape=[batch_size, tgt_len], minval=0, maxval=vocab_size-1
             )
             target_labels = jax.random.randint(
-                jax.random.PRNGKey(123), shape=[batch_size, tgt_len], minval=-1, maxval=vocab_size
+                jax.random.PRNGKey(123), shape=[batch_size, tgt_len], minval=0, maxval=vocab_size-1
             )
             global_shape = (batch_size, tgt_len)
             sharding = jax.sharding.NamedSharding(mesh, PartitionSpec('data', None))
@@ -366,7 +367,22 @@ class TransformerTest(NeuronTestCase):
 
             target_labels = jax.make_array_from_single_device_arrays(global_shape, sharding, arrays_target)
 
-            def run(input_ids, target_labels, model_params):
+            segment_ids = jnp.zeros((batch_size, tgt_len), dtype=jnp.int32)
+            segment_ids = segment_ids.at[:, seq_len:].set(1)
+            positions = jnp.tile(jnp.arange(seq_len), (batch_size, 2))
+            segment_ids_arrays = [
+                jax.device_put(segment_ids[index], d)
+                for d, index in sharding.addressable_devices_indices_map((batch_size, tgt_len)).items()
+            ]
+            segment_ids = jax.make_array_from_single_device_arrays((batch_size, tgt_len), sharding, segment_ids_arrays)
+
+            positions_arrays = [
+                jax.device_put(positions[index], d)
+                for d, index in sharding.addressable_devices_indices_map((batch_size, tgt_len)).items()
+            ]
+            positions = jax.make_array_from_single_device_arrays((batch_size, tgt_len), sharding, positions_arrays)
+
+            def run(input_ids, target_labels, segment_ids, position_ids, model_params):
                 ctx = InvocationContext(
                     name="root",
                     parent=None,
@@ -377,17 +393,20 @@ class TransformerTest(NeuronTestCase):
                     prng_key=jax.random.PRNGKey(123),
                 )
                 with set_current_context(ctx):
-                    input_batch = dict(input_ids=input_ids, target_labels=target_labels)
+                    input_batch = dict(input_ids=input_ids, target_labels=target_labels,
+                                       input_segment_ids=segment_ids, positions=position_ids)
                     loss = model.forward(input_batch=input_batch, return_aux=False)
                 return loss[0]
-            # ptoulme differentiate with respect to argnums=2 the weights
-            run = jax.jit(jax.value_and_grad(run, argnums=2), in_shardings=(NamedSharding(mesh, PartitionSpec('data', None)),
+            # ptoulme differentiate with respect to argnums=4 the weights
+            run = jax.jit(jax.value_and_grad(run, argnums=4), in_shardings=(NamedSharding(mesh, PartitionSpec('data', None)),
+                                                                 NamedSharding(mesh, PartitionSpec('data', None)),
+                                                                 NamedSharding(mesh, PartitionSpec('data', None)),
                                                                  NamedSharding(mesh, PartitionSpec('data', None)),
                                                                  self._trainer_state_partition_specs))
 
-            loss, grad = run(input_ids, target_labels, model_params)
+            loss, grad = run(input_ids, target_labels, segment_ids, positions, model_params)
             print(f'Loss = {loss}')
-            optimizer_step = True
+            optimizer_step = False
             if optimizer_step: # easy hook to turn on / off optimizer step
                 adamw = config_for_function(optimizers.adamw_optimizer).set(
                     learning_rate=1e-4, b1=0.9, b2=0.95, eps=1e-6
