@@ -5,6 +5,7 @@ import contextlib
 import jax
 import pytest
 import numpy as np
+import optax
 from jax import numpy as jnp
 from jax.sharding import PartitionSpec
 from jax.sharding import NamedSharding
@@ -23,10 +24,11 @@ from axlearn.common.layers import RMSNorm, set_bias_recursively
 from axlearn.common.learner import Learner
 from axlearn.common.module import functional as F, InvocationContext, new_output_collection, set_current_context
 from axlearn.common.optimizer_base import NestedOptParam, OptParam
+from axlearn.common.optimizers import AddDecayedWeightsState
 from axlearn.common.test_utils import NeuronTestCase, assert_allclose, dummy_segments_positions
 from typing import Any, Callable, Dict, List, NamedTuple, Optional, Sequence, Tuple, Union
 
-from axlearn.common.utils import Tensor, VDict, NestedTensor
+from axlearn.common.utils import Tensor, VDict, NestedTensor, TensorSpec
 import os
 
 class TransformerTest(NeuronTestCase):
@@ -250,9 +252,9 @@ class TransformerTest(NeuronTestCase):
         mesh = jax.sharding.Mesh(np.array(jax.devices()).reshape(DP_DEGREE, TP_DEGREE)[:, None, None, None, :],
                                  axis_names=("data", "seq", "expert", "fsdp", "model"),)
         with mesh:
-            model_dim = 2048
+            model_dim = 4096
             num_heads = 32
-            vocab_size = 512
+            vocab_size = 32000
             stacked_layer = StackedTransformerLayer.default_config()
             decoder_cfg = llama_decoder_config(
                 stack_cfg=stacked_layer,
@@ -265,7 +267,7 @@ class TransformerTest(NeuronTestCase):
                 dropout_rate=0.0,
             )
             model_cfg = causal_lm.Model.default_config().set(decoder=decoder_cfg, name="llama")
-            print(model_cfg)
+            #print(model_cfg)
             set_model_shard_weights_config(
                 model_cfg,
                 batch_axis_names='data',
@@ -274,6 +276,14 @@ class TransformerTest(NeuronTestCase):
                 seq_axis_names='model',
             )
             model = model_cfg.instantiate(parent=None)
+
+            adamw = config_for_function(optimizers.adamw_optimizer).set(
+                learning_rate=1e-4, b1=0.9, b2=0.95, eps=1e-6, mu_dtype=jnp.float32
+            )
+            learn_cfg = Learner.default_config().set(
+                name="test", optimizer=adamw)
+            learner: Learner = learn_cfg.instantiate(parent=None)
+
 
             self._trainer_state_specs = collect_param_specs(model)
             def create_named_sharding(param_spec, mesh):
@@ -301,29 +311,107 @@ class TransformerTest(NeuronTestCase):
                 self._trainer_state_specs,
                 mesh
             )
-            def init_cpu():  # Initing on Neuron causes compiler failures.
-                layer_params = model.initialize_parameters_recursively(prng_key=jax.random.PRNGKey(0))
-                return layer_params
+            #print(f'Trainer State Specs = {self._trainer_state_specs}')
+            #print(f'Trainer State Partition Specs = {self._trainer_state_partition_specs}')
+            learner_state_specs = learner.create_state_partition_specs(
+                model.create_parameter_specs_recursively()
+            )
+            #print(f'Learner State Specs = {learner_state_specs}')
+            zero1 = True
+            def create_named_sharding_optimizer(tensor_spec, mesh):
+                print(f"Creating NamedSharding for: {tensor_spec}")
+                if isinstance(tensor_spec, TensorSpec):
+                    # Check if mesh_axes is a single element tuple with None, then use PartitionSpec(None)
+                    if tensor_spec.mesh_axes == (None,):
+                        print(f"  Using PartitionSpec(None) for tensor spec: {tensor_spec}")
+                        return NamedSharding(mesh, PartitionSpec(None))
+                    else:
+                        # Check if the number of axes in mesh_axes exceeds the tensor's dimensions
+                        if len(tensor_spec.mesh_axes) > len(tensor_spec.shape):
+                            # Pop off the first axis
+                            adjusted_mesh_axes = tensor_spec.mesh_axes[1:]
+                            print(f"  Adjusting mesh_axes from {tensor_spec.mesh_axes} to {adjusted_mesh_axes}")
+                        else:
+                            adjusted_mesh_axes = tensor_spec.mesh_axes
 
-            def move_to_neuron(params):
-                weights = jax.device_put(params)
-                return weights
+                        # Convert adjusted_mesh_axes to PartitionSpec
+                        if zero1:
+                            adjusted_mesh_axes = tuple('data' if axis == 'fsdp' else axis for axis in adjusted_mesh_axes)
+                        partition_spec = PartitionSpec(*adjusted_mesh_axes)
+                        print(f"  Using PartitionSpec({partition_spec}) for tensor spec: {tensor_spec}")
+                        return NamedSharding(mesh, partition_spec)
+                # If it's not a TensorSpec, return as is
+                return tensor_spec
+
+            def convert_specs(specs, mesh):
+                # Handle tuples by processing each element
+                if isinstance(specs, optax.ScaleByAdamState):
+                    #print(f"Converting ScaleByAdamState with count TensorSpec: {specs.count}")
+                    converted_count = create_named_sharding_optimizer(specs.count, mesh)
+                    return optax.ScaleByAdamState(
+                        count=None,
+                        mu=convert_specs(specs.mu, mesh),
+                        nu=convert_specs(specs.nu, mesh)
+                    )
+                elif isinstance(specs, AddDecayedWeightsState):
+                    #print(f"Converting AddDecayedWeightsState with count: {specs.count}")
+                    #if specs.count is not None:
+                    converted_count = create_named_sharding_optimizer(specs.count, mesh)
+                    #else:
+                     #   converted_count = None
+                    return AddDecayedWeightsState(count=None)
+                elif isinstance(specs, optax.ScaleByScheduleState):
+                    #print(f"Converting ScaleByScheduleState with count TensorSpec: {specs.count}")
+                    converted_count = create_named_sharding_optimizer(specs.count, mesh)
+                    return optax.ScaleByScheduleState(count=None)
+                elif isinstance(specs, TensorSpec):
+                    #print(f"Converting TensorSpec with shape {specs.shape} and dtype {specs.dtype}")
+                    return create_named_sharding_optimizer(specs, mesh)
+                elif isinstance(specs, tuple):
+                    #print(f"Converting tuple with elements: {specs}")
+                    return tuple(convert_specs(spec, mesh) for spec in specs)
+                elif isinstance(specs, dict):
+                    #print(f"Converting dictionary with keys: {list(specs.keys())}")
+                    if isinstance(specs, VDict):
+                        return VDict({key: convert_specs(value, mesh) for key, value in specs.items()})
+                    return {key: convert_specs(value, mesh) for key, value in specs.items()}
+                else:
+                    #print(f"Returning unrecognized spec type as is: {type(specs)}")
+                    return specs
+
+            self._learner_state_partition_specs = convert_specs(learner_state_specs, mesh)
+            print(f' Learner State Partition Specs = {self._learner_state_partition_specs}')
+
+            def init_cpu():  # Initing on Neuron causes compiler failures.
+                model_params = model.initialize_parameters_recursively(prng_key=jax.random.PRNGKey(0))
+                _model_param_specs = model.create_parameter_specs_recursively()
+                learner_params = learner.init(_opt_params(model_params, _model_param_specs))
+                return model_params, learner_params
+
+            def move_to_neuron(model_params, learner_params):
+                model_weights = jax.device_put(model_params)
+                learner_weights = jax.device_put(learner_params)
+                return model_weights, learner_weights
             cpu_device = jax.devices('cpu')[0]
             with jax.default_device(cpu_device):
-                model_params = init_cpu()
+                model_params, learner_params = init_cpu()
 
             move_to_neuron = jax.jit(
                 move_to_neuron,
-                in_shardings=(self._trainer_state_partition_specs,), # singleton tuple is necessary here
+                in_shardings=(self._trainer_state_partition_specs, self._learner_state_partition_specs), # singleton tuple is necessary here
             )
-            model_params = move_to_neuron(model_params)
+            model_params, learner_params = move_to_neuron(model_params, learner_params)
             def print_dict_structure(d, indent=0):
                 for key, value in d.items():
                     print(' ' * indent + f"{key}: {type(value)}")
                     if isinstance(value, dict):
                         print_dict_structure(value, indent + 4)
 
-            print_dict_structure(model_params)
+            #print_dict_structure(model_params)
+            #print_dict_structure(learner_params)
+            print(learner_params)
+
+            print(self._learner_state_partition_specs)
             jax.debug.visualize_array_sharding(model_params['decoder']['transformer']['layer0']['feed_forward']['linear1']['weight'])
             #norm = jax.jit(model.decoder.transformer.layer0.self_attention.norm, in_shardings=(NamedSharding(mesh, PartitionSpec('data', 'model', None)),),
              #              out_shardings=(NamedSharding(mesh, PartitionSpec('data', None, None))))
@@ -349,10 +437,10 @@ class TransformerTest(NeuronTestCase):
             rng = np.random.default_rng(seed=123)
 
             input_ids = jax.random.randint(
-                jax.random.PRNGKey(123), shape=[batch_size, tgt_len], minval=0, maxval=vocab_size-1
+                jax.random.PRNGKey(123), shape=[batch_size, tgt_len], minval=0, maxval=vocab_size-2
             )
             target_labels = jax.random.randint(
-                jax.random.PRNGKey(123), shape=[batch_size, tgt_len], minval=0, maxval=vocab_size-1
+                jax.random.PRNGKey(123), shape=[batch_size, tgt_len], minval=0, maxval=vocab_size-2
             )
             global_shape = (batch_size, tgt_len)
             sharding = jax.sharding.NamedSharding(mesh, PartitionSpec('data', None))
@@ -404,39 +492,38 @@ class TransformerTest(NeuronTestCase):
                                                                  NamedSharding(mesh, PartitionSpec('data', None)),
                                                                  self._trainer_state_partition_specs))
 
-            loss, grad = run(input_ids, target_labels, segment_ids, positions, model_params)
-            print(f'Loss = {loss}')
-            optimizer_step = False
-            if optimizer_step: # easy hook to turn on / off optimizer step
-                adamw = config_for_function(optimizers.adamw_optimizer).set(
-                    learning_rate=1e-4, b1=0.9, b2=0.95, eps=1e-6
-                )
-                learn_cfg = Learner.default_config().set(
-                    name="test", optimizer=adamw)
-                learner: Learner = learn_cfg.instantiate(parent=None)
-                _model_param_specs = model.create_parameter_specs_recursively()
-                state = learner.init(_opt_params(model_params, _model_param_specs))
-                opt_params = _opt_params(model_params, _model_param_specs)
+            def train_step(input_ids, target_labels, segment_ids, positions, model_params, learner_params):
+                loss, grad = run(input_ids, target_labels, segment_ids, positions, model_params)
                 def optimizer_step(state, grads, params):
                     updated_params, output_collection = F(
-                        learner,
-                        method="update",
-                        is_training=True,
-                        prng_key=jax.random.PRNGKey(123),
-                        state=state,
-                        inputs=dict(
-                            gradients=grads,
-                            model_params=params,
-                            state_updates={},
-                        ),
+                            learner,
+                            method="update",
+                            is_training=True,
+                            prng_key=jax.random.PRNGKey(123),
+                            state=state,
+                            inputs=dict(
+                                gradients=grads,
+                                model_params=params,
+                                state_updates={},
+                            ),
                     )
                     return updated_params
-                #optimizer_step = jax.jit(optimizer_step)
+                _model_param_specs = model.create_parameter_specs_recursively()
+                opt_params = _opt_params(model_params, _model_param_specs)
 
-                updated_params = optimizer_step(state, grad, opt_params)
-                print(updated_params)
+                updated_params = optimizer_step(learner_params, grad, opt_params)
+                return loss, grad, updated_params
 
-
+            train_step = jax.jit(train_step, in_shardings=(NamedSharding(mesh, PartitionSpec('data', None)),
+                                                          NamedSharding(mesh, PartitionSpec('data', None)),
+                                                          NamedSharding(mesh, PartitionSpec('data', None)),
+                                                          NamedSharding(mesh, PartitionSpec('data', None)),
+                                                          self._trainer_state_partition_specs,
+                                                          self._learner_state_partition_specs))
+            loss, grad, weights = train_step(input_ids, target_labels, segment_ids, positions, model_params, learner_params)
+            print(f'Loss={loss}')
+            print(f'Grad={grad}')
+            print(f'Weight={weights}')
 def set_double_shard_weights_config(
         cfg: Union[TransformerLayer.Config, Sequence[TransformerLayer.Config]],
         *,
@@ -535,6 +622,7 @@ def llama_decoder_config(
 
     cfg = TransformerLayer.default_config()
     cfg.dtype = jnp.bfloat16
+    #cfg.dtype = jnp.float32
     cfg.feed_forward.set(hidden_dim=scaled_hidden_dim(4))
     cfg.self_attention.attention.set(num_heads=num_heads)
     cfg.self_attention.attention.input_linear = FusedQKVLinear.default_config()
@@ -547,10 +635,10 @@ def llama_decoder_config(
         transformer=transformer_cls,
         dim=hidden_dim,
         vocab_size=vocab_size,
-        emb=TransformerTextEmbeddings.default_config().set(pos_emb=None).set(dtype=jnp.bfloat16),
+        emb=TransformerTextEmbeddings.default_config().set(pos_emb=None).set(dtype=jnp.bfloat16), #bfloat16
         output_norm=RMSNorm.default_config().set(eps=layer_norm_epsilon),
         dropout_rate=dropout_rate,
-        lm_head=LmHead.default_config().set(dtype=jnp.bfloat16)
+        lm_head=LmHead.default_config().set(dtype=jnp.bfloat16)  #bfloat16
     )
     return decoder
 

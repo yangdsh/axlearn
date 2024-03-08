@@ -3560,7 +3560,7 @@ def build_remat_spec(
         policy=config_for_function(jax_remat_policies.save_only_these_names).set(
             names_which_can_be_saved=[
                 f"{attention_name}.{el}"
-                for el in ["q_proj", "k_proj", "v_proj", "context", "o_proj"]
+                for el in ["q_proj", "k_proj", "v_proj", "context"]
             ]
         ),
     )
