@@ -732,4 +732,5 @@ class LmHead(BaseLayer):
         Returns:
             A float Tensor of shape [batch_size, seq_len, vocab_size].
         """
+        x = x.astype(self.parameters["weight"].dtype)
         return jnp.einsum("bsh,vh->bsv", x, self.parameters["weight"])

@@ -271,14 +271,14 @@ class TransformerTest(NeuronTestCase):
             set_model_shard_weights_config(
                 model_cfg,
                 batch_axis_names='data',
-                fsdp_axis_names='fsdp',
+                fsdp_axis_names='data',
                 tp_axis_names='model',
                 seq_axis_names='model',
             )
             model = model_cfg.instantiate(parent=None)
 
             adamw = config_for_function(optimizers.adamw_optimizer).set(
-                learning_rate=1e-4, b1=0.9, b2=0.95, eps=1e-6, mu_dtype=jnp.float32
+                learning_rate=1e-4, b1=0.9, b2=0.95, eps=1e-6, mu_dtype=jnp.bfloat16
             )
             learn_cfg = Learner.default_config().set(
                 name="test", optimizer=adamw)
@@ -318,19 +318,20 @@ class TransformerTest(NeuronTestCase):
             )
             #print(f'Learner State Specs = {learner_state_specs}')
             zero1 = True
+            print(f'Zero1 Enabled: {zero1}')
             def create_named_sharding_optimizer(tensor_spec, mesh):
-                print(f"Creating NamedSharding for: {tensor_spec}")
+                #print(f"Creating NamedSharding for: {tensor_spec}")
                 if isinstance(tensor_spec, TensorSpec):
                     # Check if mesh_axes is a single element tuple with None, then use PartitionSpec(None)
                     if tensor_spec.mesh_axes == (None,):
-                        print(f"  Using PartitionSpec(None) for tensor spec: {tensor_spec}")
+                        #print(f"  Using PartitionSpec(None) for tensor spec: {tensor_spec}")
                         return NamedSharding(mesh, PartitionSpec(None))
                     else:
                         # Check if the number of axes in mesh_axes exceeds the tensor's dimensions
                         if len(tensor_spec.mesh_axes) > len(tensor_spec.shape):
                             # Pop off the first axis
                             adjusted_mesh_axes = tensor_spec.mesh_axes[1:]
-                            print(f"  Adjusting mesh_axes from {tensor_spec.mesh_axes} to {adjusted_mesh_axes}")
+                         #   print(f"  Adjusting mesh_axes from {tensor_spec.mesh_axes} to {adjusted_mesh_axes}")
                         else:
                             adjusted_mesh_axes = tensor_spec.mesh_axes
 
@@ -338,7 +339,7 @@ class TransformerTest(NeuronTestCase):
                         if zero1:
                             adjusted_mesh_axes = tuple('data' if axis == 'fsdp' else axis for axis in adjusted_mesh_axes)
                         partition_spec = PartitionSpec(*adjusted_mesh_axes)
-                        print(f"  Using PartitionSpec({partition_spec}) for tensor spec: {tensor_spec}")
+                        #print(f"  Using PartitionSpec({partition_spec}) for tensor spec: {tensor_spec}")
                         return NamedSharding(mesh, partition_spec)
                 # If it's not a TensorSpec, return as is
                 return tensor_spec
@@ -380,7 +381,7 @@ class TransformerTest(NeuronTestCase):
                     return specs
 
             self._learner_state_partition_specs = convert_specs(learner_state_specs, mesh)
-            print(f' Learner State Partition Specs = {self._learner_state_partition_specs}')
+            #print(f' Learner State Partition Specs = {self._learner_state_partition_specs}')
 
             def init_cpu():  # Initing on Neuron causes compiler failures.
                 model_params = model.initialize_parameters_recursively(prng_key=jax.random.PRNGKey(0))
@@ -409,9 +410,9 @@ class TransformerTest(NeuronTestCase):
 
             #print_dict_structure(model_params)
             #print_dict_structure(learner_params)
-            print(learner_params)
+            #print(learner_params)
 
-            print(self._learner_state_partition_specs)
+            #print(self._learner_state_partition_specs)
             jax.debug.visualize_array_sharding(model_params['decoder']['transformer']['layer0']['feed_forward']['linear1']['weight'])
             #norm = jax.jit(model.decoder.transformer.layer0.self_attention.norm, in_shardings=(NamedSharding(mesh, PartitionSpec('data', 'model', None)),),
              #              out_shardings=(NamedSharding(mesh, PartitionSpec('data', None, None))))
