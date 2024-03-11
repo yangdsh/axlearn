@@ -1617,6 +1617,7 @@ class MultiheadAttention(BaseLayer):
             value=value,
             attention_logit_biases=attention_logit_biases,
         )
+        output = with_sharding_constraint(output, PartitionSpec('data', None, None))
         return output
 
     def _cap_logits(self, logits: Tensor) -> Tensor:
