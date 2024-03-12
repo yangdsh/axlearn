@@ -16,6 +16,7 @@ from axlearn.common.attention import (
     RepeatedTransformerLayer,
     RoFormerQKVLinear,
 )
+from axlearn.common.utils import DataPartitionType
 from axlearn.common.embedding import TransformerTextEmbeddings
 from axlearn.common.layers import RMSNorm
 from axlearn.experiments.text.gpt.common import STEP_DTYPE, learner_config, mesh_shape_from_axes
