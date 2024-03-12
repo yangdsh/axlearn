@@ -94,6 +94,7 @@ from axlearn.common.utils import (
     get_or_none,
     shapes,
     split_prng_key,
+    with_sharding_constraint
 )
 
 NEG_INF = -1e15
