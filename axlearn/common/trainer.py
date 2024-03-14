@@ -80,7 +80,7 @@ class SpmdTrainer(Module):
 
         # The input partition:
         # Options: FULL (default), DATA, REPLICATED
-        input_partition_type: Required[DataPartitionType] = DataPartitionType.FULL
+        input_partition_type: Required[DataPartitionType] = DataPartitionType.DATA
 
         # A summary writer to log tagged summary values.
         summary_writer: BaseWriter.Config = SummaryWriter.default_config()
