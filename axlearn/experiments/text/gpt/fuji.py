@@ -36,7 +36,8 @@ def get_trainer_kwargs(model_size: str, *, vocab_size: int) -> Dict[str, Any]:
             model_kwargs=dict(
                 num_layers=1,
                 hidden_dim=32,
-                ffn_dim=scaled_hidden_dim(scale=8 / 3, round_up_to_multiples_of=16),
+                #ffn_dim=scaled_hidden_dim(scale=8 / 3, round_up_to_multiples_of=16),
+                ffn_dim=scaled_hidden_dim(scale=4, round_up_to_multiples_of=16),
                 num_heads=8,
                 vocab_size=32,
             ),
