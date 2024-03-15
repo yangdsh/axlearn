@@ -1238,8 +1238,10 @@ class Embedding(BaseLayer):
         )
 
     def forward(self, x: Tensor) -> Tensor:
+        # ptoulme - these annotations can be removed if we refine the gather_scatter_handler.cc file
+        x = with_sharding_constraint(x, PartitionSpec('data', None))
         emb = self.parameters["weight"]
-        emb = with_sharding_constraint(emb, PartitionSpec(None, 'model'))
+        emb = with_sharding_constraint(emb, PartitionSpec('model', None))
         activation = emb[x]
         activation = with_sharding_constraint(activation, PartitionSpec('data', None, None))
         return activation

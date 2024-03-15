@@ -28,7 +28,7 @@ from axlearn.common.optimizers import AddDecayedWeightsState
 from axlearn.common.test_utils import NeuronTestCase, assert_allclose, dummy_segments_positions
 from typing import Any, Callable, Dict, List, NamedTuple, Optional, Sequence, Tuple, Union
 
-from axlearn.common.utils import Tensor, VDict, NestedTensor, TensorSpec
+from axlearn.common.utils import Tensor, VDict, NestedTensor, TensorSpec, with_sharding_constraint
 import os
 
 class TransformerTest(NeuronTestCase):
@@ -258,7 +258,7 @@ class TransformerTest(NeuronTestCase):
             stacked_layer = StackedTransformerLayer.default_config()
             decoder_cfg = llama_decoder_config(
                 stack_cfg=stacked_layer,
-                num_layers=4,
+                num_layers=1,
                 hidden_dim=model_dim,
                 num_heads=num_heads,
                 vocab_size=vocab_size,
@@ -494,6 +494,10 @@ class TransformerTest(NeuronTestCase):
                                                                  self._trainer_state_partition_specs))
 
             def train_step(input_ids, target_labels, segment_ids, positions, model_params, learner_params):
+                input_ids = with_sharding_constraint(input_ids, PartitionSpec('data', None))
+                target_labels = with_sharding_constraint(target_labels, PartitionSpec('data', None))
+                segment_ids = with_sharding_constraint(segment_ids, PartitionSpec('data', None))
+                positions = with_sharding_constraint(positions, PartitionSpec('data', None))
                 loss, grad = run(input_ids, target_labels, segment_ids, positions, model_params)
                 def optimizer_step(state, grads, params):
                     updated_params, output_collection = F(
@@ -522,9 +526,12 @@ class TransformerTest(NeuronTestCase):
                                                           self._trainer_state_partition_specs,
                                                           self._learner_state_partition_specs))
             loss, grad, weights = train_step(input_ids, target_labels, segment_ids, positions, model_params, learner_params)
+            assert loss is not None
+            assert grad is not None
+            assert weights is not None
             print(f'Loss={loss}')
-            print(f'Grad={grad}')
-            print(f'Weight={weights}')
+           # print(f'Grad={grad}')
+            #print(f'Weight={weights}')
 def set_double_shard_weights_config(
         cfg: Union[TransformerLayer.Config, Sequence[TransformerLayer.Config]],
         *,
@@ -685,7 +692,7 @@ def set_model_shard_weights_config(
     #if not isinstance(cfg, Sequence):
      #   cfg = [cfg]
     #print(cfg.decoder)
-    cfg.decoder.emb.token_emb.param_partition_spec = (fsdp_axis_names, tp_axis_names) # shard hidden
+    cfg.decoder.emb.token_emb.param_partition_spec = (tp_axis_names, fsdp_axis_names) # shard hidden
     cfg.decoder.lm_head.param_partition_spec = (tp_axis_names, fsdp_axis_names) # shard vocab
     for layer_cfg in [cfg.decoder.transformer.layer]: # shard the sole layer and its used for all other layers
         layer_cfg.remat_spec = build_remat_spec(cfg.decoder.transformer) # activation checkpointing

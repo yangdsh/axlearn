@@ -30,7 +30,7 @@ echo $DISTRIBUTED_ARGS
 #export TF_CPP_MIN_LOG_LEVEL=0 # Enable SPMD verbose logging - 0 means most verbose
 #export TF_CPP_MAX_VLOG_LEVEL=2 # Needs above flag for logging but goes in reverse. 0 means no log
 #export TF_CPP_MIN_LOG_LEVEL=0
-#export TF_CPP_MAX_VLOG_LEVEL=1
+#export TF_CPP_MAX_VLOG_LEVEL=5
 
 export PJRT_DEVICE="NEURON"
 export NEURON_RT_NUM_CORES=32
@@ -46,7 +46,7 @@ export NEURON_INTERNAL_USE_VANILLA_TORCH_XLA=1
 export NEURON_USE_VANILLA_TORCH_XLA=1
 export NEURON_TRANSFER_WITH_STATIC_RING_OPS=""
 export NEURON_TRANSFER_ALL_PARAMETERS_WITH_STATIC_RING=0
-export XLA_FLAGS="--xla_force_host_platform_device_count=32 --xla_dump_hlo_as_text --xla_dump_hlo_as_proto --xla_dump_to=./jax_dump --xla_dump_hlo_pass_re='.*'"
+export XLA_FLAGS="--xla_force_host_platform_device_count=32 --xla_dump_hlo_as_text --xla_dump_hlo_as_proto --xla_dump_to=./jax_dump_new --xla_dump_hlo_pass_re='.*'"
 
 #Snapshotting
 #export XLA_FLAGS=" --xla_dump_hlo_snapshots --xla_dump_to=/shared/ptoulme/GSPMD/NeuronGSPMDTests/src/NeuronGSPMDTests/transformers/snapshots"
@@ -58,9 +58,11 @@ export XLA_HLO_DEBUG=1
 # BF16
 export XLA_USE_BF16=1
 #export NEURON_CC_FLAGS="--dump=./compiler_dump --framework=XLA --model-type=transformer --distribution-strategy=llm-training -O1 --no-internal-hlo-remat"
-export NEURON_CC_FLAGS="--dump=./compiler_dump_4layer --framework=XLA --model-type transformer --internal-io-to-internal-dmacopy-insertion --enable-mixed-precision-accumulation -O1"
+export NEURON_CC_FLAGS="--dump=./compiler_dump --framework=XLA --model-type transformer --internal-io-to-internal-dmacopy-insertion --enable-mixed-precision-accumulation -O1"
 
 export NEURON_RT_STOCHASTIC_ROUNDING_EN=1
 export NEURON_RT_ASYNC_EXEC_MAX_INFLIGHT_REQUESTS=5
 
 export JAX_TRACEBACK_FILTERING=off # this enables verbose frame logging in jax
+
+# llm training
