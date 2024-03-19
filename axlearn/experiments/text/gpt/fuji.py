@@ -16,6 +16,7 @@ from axlearn.common.attention import (
     RepeatedTransformerLayer,
     RoFormerQKVLinear,
 )
+from axlearn.common.utils import DataPartitionType
 from axlearn.common.embedding import TransformerTextEmbeddings
 from axlearn.common.layers import RMSNorm
 from axlearn.experiments.text.gpt.common import STEP_DTYPE, learner_config, mesh_shape_from_axes
@@ -33,20 +34,22 @@ def get_trainer_kwargs(model_size: str, *, vocab_size: int) -> Dict[str, Any]:
     if model_size == "test":
         trainer_kwargs = dict(
             model_kwargs=dict(
-                num_layers=4,
-                hidden_dim=8,
-                ffn_dim=scaled_hidden_dim(scale=8 / 3, round_up_to_multiples_of=16),
-                num_heads=4,
+                num_layers=1,
+                hidden_dim=32,
+                #ffn_dim=scaled_hidden_dim(scale=8 / 3, round_up_to_multiples_of=16),
+                ffn_dim=scaled_hidden_dim(scale=4, round_up_to_multiples_of=16),
+                num_heads=8,
                 vocab_size=32,
             ),
             learner_kwargs=dict(
                 peak_lr=6e-4,
                 weight_decay=0.01,
             ),
+            input_partition_type=DataPartitionType.DATA,
             max_sequence_length=64,
-            train_batch_size=16,
-            max_step=3000,
-            mesh_shape=mesh_shape_from_axes(),  # cpu
+            train_batch_size=8,
+            max_step=5000,
+            mesh_shape=mesh_shape_from_axes(data=4, model=8),  # gpu
         )
     elif model_size == "7B":
         trainer_kwargs = dict(
@@ -56,6 +59,7 @@ def get_trainer_kwargs(model_size: str, *, vocab_size: int) -> Dict[str, Any]:
                 num_heads=32,
             ),
             learner_kwargs=dict(peak_lr=3e-4, weight_decay=0.1),
+            input_partition_type=DataPartitionType.DATA,
             train_batch_size=4 * 1024 * 1024 // MAX_SEQUENCE_LENGTH,  # 4M tokens.
             max_step=500_000,  # 2T tokens // 4M tokens/step.
             mesh_shape=mesh_shape_from_axes(fsdp=-1),

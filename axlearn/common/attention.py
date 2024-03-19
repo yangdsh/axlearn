@@ -93,7 +93,8 @@ from axlearn.common.utils import (
     check_numerics,
     get_or_none,
     shapes,
-    split_prng_key, with_sharding_constraint,
+    split_prng_key,
+    with_sharding_constraint
 )
 
 NEG_INF = -1e15
@@ -549,7 +550,8 @@ def softmax_with_biases(logits: Tensor, attention_logit_biases: Optional[Tensor]
     logits_dtype = logits.dtype
     if logits_dtype in (jnp.bfloat16, jnp.float16):
         # Avoid computing softmax in 16-bit floats.
-        logits = logits.astype(jnp.float32)
+        if jax.default_backend() != "neuron":
+            logits = logits.astype(jnp.float32)
     probs = jax.nn.softmax(logits, axis=-1)
     if probs.dtype != logits_dtype:
         probs = probs.astype(logits_dtype)
