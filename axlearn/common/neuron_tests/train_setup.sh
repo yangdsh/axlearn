@@ -59,8 +59,8 @@ export XLA_HLO_DEBUG=1
 # BF16
 export XLA_USE_BF16=1
 #export NEURON_CC_FLAGS="--dump=./compiler_dump --framework=XLA --model-type=transformer --distribution-strategy=llm-training -O1 --no-internal-hlo-remat"
-export NEURON_CC_FLAGS="--dump=./compiler_dump --framework=XLA --model-type transformer --internal-io-to-internal-dmacopy-insertion --enable-mixed-precision-accumulation -O1"
-#export NEURON_CC_FLAGS="--dump=./compiler_dump --framework=XLA --model-type transformer --no-internal-hlo-remat --distribution-strategy=llm-training --enable-mixed-precision-accumulation -O1"
+#export NEURON_CC_FLAGS="--dump=./compiler_dump --framework=XLA --model-type transformer --internal-io-to-internal-dmacopy-insertion --enable-mixed-precision-accumulation -O1"
+export NEURON_CC_FLAGS="--dump=./compiler_dump --framework=XLA --model-type transformer --no-internal-hlo-remat --distribution-strategy=llm-training --enable-mixed-precision-accumulation -O1"
 export NEURON_RT_STOCHASTIC_ROUNDING_EN=1
 export NEURON_RT_ASYNC_EXEC_MAX_INFLIGHT_REQUESTS=5
 
