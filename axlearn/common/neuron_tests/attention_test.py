@@ -258,7 +258,7 @@ class TransformerTest(NeuronTestCase):
             stacked_layer = StackedTransformerLayer.default_config()
             decoder_cfg = llama_decoder_config(
                 stack_cfg=stacked_layer,
-                num_layers=1,
+                num_layers=4,
                 hidden_dim=model_dim,
                 num_heads=num_heads,
                 vocab_size=vocab_size,
