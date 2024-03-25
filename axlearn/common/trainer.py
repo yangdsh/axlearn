@@ -43,7 +43,6 @@ from axlearn.common.utils import (
     thread_stack_traces,
 )
 import jax
-import optax
 from jax import numpy as jnp
 from jax.sharding import PartitionSpec
 from jax.sharding import NamedSharding
@@ -51,9 +50,8 @@ from axlearn.common.base_layer import ParameterSpec
 from axlearn.common.learner import Learner
 from axlearn.common.module import functional as F, InvocationContext
 from axlearn.common.optimizer_base import NestedOptParam, OptParam
-from axlearn.common.optimizers import AddDecayedWeightsState
 from typing import Any,Dict, List, NamedTuple, Optional, Sequence, Tuple, Union
-from axlearn.common.utils import Tensor, VDict, NestedTensor, TensorSpec
+from axlearn.common.utils import Tensor, NestedTensor, TensorSpec
 import os
 
 def _prune_empty(in_tree: NestedTensor) -> NestedTensor:
@@ -559,10 +557,6 @@ class SpmdTrainer(Module):
             if not key.startswith("model/"):
                 raise NotImplementedError(f"Partial initialization is not supported for: {key}")
 
-        prebuilt_model_state_partition_spec = jax.tree_util.tree_map(
-            lambda value: value.sharding if isinstance(value, Tensor) else None,
-            prebuilt_state.trainer_state.model,
-        )
         prebuilt_model_state = jax.tree_util.tree_map(
             lambda value: value if isinstance(value, Tensor) else None,
             prebuilt_state.trainer_state.model,
@@ -585,31 +579,6 @@ class SpmdTrainer(Module):
                 learner=learner_params,
             )
 
-        def _init_state_cpu(prng_key: Tensor, prebuilt_model_state: NestedTensor):
-            prng_key, init_key = jax.random.split(prng_key)
-
-            cpu_device = jax.devices("cpu")[0]
-            with jax.default_device(cpu_device):
-                model_params = self.model.initialize_parameters_recursively(
-                    init_key,
-                    prebuilt=prebuilt_model_state,
-                )
-                learner_params = self.learner.init(self._opt_params(model_params))
-                logging.info("CPU initialization completed.")
-            return prng_key, model_params, learner_params
-
-        def _move_state_to_neuron(prng_key: Tensor, model_params, learner_params):
-            model_params = jax.device_put(model_params)
-            learner_params = jax.device_put(learner_params)
-            self.vlog(
-                1, "tree_structure(model_params)=%s", jax.tree_util.tree_structure(model_params)
-            )
-            return TrainerState(
-                prng_key=prng_key,
-                model=model_params,
-                learner=learner_params,
-            )
-
         model_specs = jax.tree_util.tree_map(
             lambda value: create_named_sharding(value, self.mesh()) if isinstance(value, PartitionSpec) else None,
             self._trainer_state_partition_specs[1],
@@ -618,18 +587,12 @@ class SpmdTrainer(Module):
             lambda value: create_named_sharding_optimizer(value, self.mesh()) if isinstance(value, TensorSpec) else None,
             self._learner_state_partition_specs,
         )
-        init_computation = jax.jit(
-            #_init_state,
-            _move_state_to_neuron,
-            in_shardings=(None, model_specs, learner_specs),
-        )
         self._step_log("Initializing trainer state.")
-        cpu_device = jax.devices("cpu")[0]
-        with jax.default_device(cpu_device):
-            prng_key, model_params, learner_params = _init_state_cpu(prng_key, prebuilt_model_state)
-        with self.mesh():
-            self._trainer_state = init_computation(prng_key, model_params, learner_params)
-            logging.info("Transfer to device completed.")
+        init_computation = jax.jit(
+            _init_state,
+            out_shardings=(TrainerState(None, model_specs, learner_specs)),
+        )
+        self._trainer_state = init_computation(prng_key, prebuilt_model_state)
 
     def _log_trainer_state_stats(self):
         total_num_params = count_model_params(self._trainer_state.model)
@@ -886,7 +849,7 @@ class SpmdTrainer(Module):
                     aux=None,
                 ),
             ),
-            #donate_argnums=(0,),  # donate the state - neuron doesnt support this
+            donate_argnums=(0,),
         )
 
     def compile_train_step(self) -> jax.stages.Compiled:

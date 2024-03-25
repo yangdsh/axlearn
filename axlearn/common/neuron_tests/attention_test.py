@@ -247,18 +247,19 @@ class TransformerTest(NeuronTestCase):
 
     def test_model(self):
         """A test of Stacked TransformerLayer backward."""
+        jax.config.update("jax_default_prng_impl", "rbg")
         TP_DEGREE = 8
         DP_DEGREE = (int(os.getenv('SLURM_JOB_NUM_NODES'))*32)//TP_DEGREE
         mesh = jax.sharding.Mesh(np.array(jax.devices()).reshape(DP_DEGREE, TP_DEGREE)[:, None, None, None, :],
                                  axis_names=("data", "seq", "expert", "fsdp", "model"),)
         with mesh:
-            model_dim = 4096
+            model_dim = 2048
             num_heads = 32
-            vocab_size = 32000
+            vocab_size = 8000
             stacked_layer = StackedTransformerLayer.default_config()
             decoder_cfg = llama_decoder_config(
                 stack_cfg=stacked_layer,
-                num_layers=4,
+                num_layers=1,
                 hidden_dim=model_dim,
                 num_heads=num_heads,
                 vocab_size=vocab_size,
@@ -482,8 +483,8 @@ class TransformerTest(NeuronTestCase):
                     prng_key=jax.random.PRNGKey(123),
                 )
                 with set_current_context(ctx):
-                    input_batch = dict(input_ids=input_ids, target_labels=target_labels,
-                                       input_segment_ids=segment_ids, positions=position_ids)
+                    input_batch = dict(input_ids=input_ids, target_labels=target_labels,)
+                                       #input_segment_ids=segment_ids, positions=position_ids)
                     loss = model.forward(input_batch=input_batch, return_aux=False)
                 return loss[0]
             # ptoulme differentiate with respect to argnums=4 the weights

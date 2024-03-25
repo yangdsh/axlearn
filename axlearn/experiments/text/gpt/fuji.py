@@ -8,7 +8,7 @@ The fuji models are set up to imitate LLaMA-1 (https://arxiv.org/abs/2302.13971)
 """
 
 from typing import Any, Dict, Optional, Union
-
+import os
 from axlearn.common import causal_lm, config
 from axlearn.common.attention import (
     CausalAttentionLogitBiasLayer,
@@ -33,24 +33,27 @@ def get_trainer_kwargs(model_size: str, *, vocab_size: int) -> Dict[str, Any]:
     # dict() is more readable here.
     # pylint: disable=use-dict-literal
     if model_size == "test":
+        TP_DEGREE = 8
+        DP_DEGREE = (int(os.getenv('SLURM_JOB_NUM_NODES'))*32)//TP_DEGREE
+        print(f'DP_DEGREE {DP_DEGREE}')
         trainer_kwargs = dict(
             model_kwargs=dict(
-                num_layers=1,
-                hidden_dim=1024,
+                num_layers=32,
+                hidden_dim=4096,
                 #ffn_dim=scaled_hidden_dim(scale=8 / 3, round_up_to_multiples_of=16),
                 ffn_dim=scaled_hidden_dim(scale=4, round_up_to_multiples_of=16),
                 num_heads=32,
-                vocab_size=8000,
+                vocab_size=32000,
             ),
             learner_kwargs=dict(
                 peak_lr=6e-4,
                 weight_decay=0.01,
             ),
             input_partition_type=DataPartitionType.DATA,
-            max_sequence_length=2048,
-            train_batch_size=4,
-            max_step=5000,
-            mesh_shape=mesh_shape_from_axes(data=4, model=8),
+            max_sequence_length=4096,
+            train_batch_size=DP_DEGREE,
+            max_step=20000,
+            mesh_shape=mesh_shape_from_axes(data=DP_DEGREE, model=TP_DEGREE),
         )
     elif model_size == "7B":
         trainer_kwargs = dict(

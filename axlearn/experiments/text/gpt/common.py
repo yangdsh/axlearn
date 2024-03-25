@@ -296,7 +296,7 @@ def learner_config(
                 weight_decay=weight_decay,
                 weight_decay_per_param_scale=None,
                 adam_update_transformation=None,
-                mu_dtype=jnp.bfloat16
+                mu_dtype=jnp.float32
             ),
         ]
     )
@@ -517,6 +517,7 @@ def get_trainer_config_fn(
         cfg.learner = learner_cfg
         cfg.max_step = max_step
         cfg.train_dtype = STEP_DTYPE
+        print(f'Batch size: {train_batch_size}')
         cfg.input = input_tf_data.Input.default_config().set(
             is_training=True,
             source=train_input_source,

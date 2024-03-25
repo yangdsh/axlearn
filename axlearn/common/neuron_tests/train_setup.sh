@@ -46,14 +46,15 @@ export NEURON_INTERNAL_USE_VANILLA_TORCH_XLA=1
 export NEURON_USE_VANILLA_TORCH_XLA=1
 export NEURON_TRANSFER_WITH_STATIC_RING_OPS=""
 export NEURON_TRANSFER_ALL_PARAMETERS_WITH_STATIC_RING=0
-export XLA_FLAGS="--xla_force_host_platform_device_count=32 --xla_dump_hlo_as_text --xla_dump_hlo_as_proto --xla_dump_to=./trainer_dump --xla_dump_hlo_pass_re='.*'"
+export XLA_FLAGS="--xla_force_host_platform_device_count=32 --xla_dump_hlo_as_text --xla_dump_hlo_as_proto --xla_dump_to=./jax4_dump --xla_dump_hlo_pass_re='.*'"
 # To run on CPU set below
 #export JAX_PLATFORMS='cpu'
 #Snapshotting
 #export XLA_FLAGS=" --xla_dump_hlo_snapshots --xla_dump_to=/shared/ptoulme/GSPMD/NeuronGSPMDTests/src/NeuronGSPMDTests/transformers/snapshots"
 export XLA_IR_DEBUG=1
 export XLA_HLO_DEBUG=1
-
+export NEURON_WHILE_LOOP_UNROLL_MODULES="jit__init_state"
+export NEURON_RUN_TRIVIAL_COMPUTATION_ON_CPU=1 # for init and small graphs
 #Runtime debug
 #export NEURON_RT_LOG_LEVEL_NRT = 'DEBUG'
 # BF16

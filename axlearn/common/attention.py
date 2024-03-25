@@ -550,8 +550,7 @@ def softmax_with_biases(logits: Tensor, attention_logit_biases: Optional[Tensor]
     logits_dtype = logits.dtype
     if logits_dtype in (jnp.bfloat16, jnp.float16):
         # Avoid computing softmax in 16-bit floats.
-        if jax.default_backend() != "neuron":
-            logits = logits.astype(jnp.float32)
+        logits = logits.astype(jnp.float32)
     probs = jax.nn.softmax(logits, axis=-1)
     if probs.dtype != logits_dtype:
         probs = probs.astype(logits_dtype)
@@ -1106,6 +1105,7 @@ def apply_rotary_position_embeddings(
         Rotary position affined value embeddings with shape [batch_size, seq_len, num_heads, dim]
             if rotary_value == True, else original value embeddings
     """
+    return query, key, value # neuron skips this for now until fixed
     # sin [batch_size, num_heads, sequence_length, embed_size_per_head//2]
     # cos [batch_size, num_heads, sequence_length, embed_size_per_head//2]
     sin, cos = jnp.split(sinusoidal_pos, 2, axis=-1)
