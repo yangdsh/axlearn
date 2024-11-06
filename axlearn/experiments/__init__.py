@@ -43,6 +43,7 @@ def get_named_trainer_config(config_name: str, *, config_module: str) -> Trainer
         return config_map(config_name)
 
     try:
+        print('here2 ', config_map[config_name])
         return config_map[config_name]
     except KeyError as e:
         similar = similar_names(config_name, set(config_map.keys()))

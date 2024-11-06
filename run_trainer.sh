@@ -9,15 +9,16 @@
 # source ${CONDA_HOME}/bin/activate ${CONDA_ENV_NAME}
 
 # VENV
-PY_VENV_PATH="/shared/apoorvgu/jax-21/bin/activate"
-source ${PY_VENV_PATH}
+# PY_VENV_PATH="/shared/apoorvgu/jax-21/bin/activate"
+# source ${PY_VENV_PATH}
 
 NEURON_DUMP_PATH=${PWD}/neuron_dump
 HLO_DUMP_PATH=${PWD}/hlo_dump
+export XLA_FLAGS="--xla_dump_hlo_as_text --xla_dump_to=${HLO_DUMP_PATH} --xla_dump_hlo_pass_re='.*'"
 
 # Install runtime and collectives library. This is only needed in internal dev cluster
 # Remove this before release
-source ./bigcluster_setup.sh
+# source ./bigcluster_setup.sh
 
 # Neuron compiler flags
 export NEURON_CC_FLAGS="--framework=XLA"
@@ -37,23 +38,25 @@ export NEURON_RUN_TRIVIAL_COMPUTATION_ON_CPU=1
 export NEURON_RT_ASYNC_EXEC_MAX_INFLIGHT_REQUESTS=1
 
 # Neuron env vars for distributed training based on SLURM
-nodes=$(scontrol show hostnames "$SLURM_JOB_NODELIST")
-num_nodes=$(echo "$nodes" | wc -l)
-process_idx=$(echo "$nodes" | grep -n "$SLURMD_NODENAME" | cut -d: -f1)
+nodes= # $(scontrol show hostnames "$SLURM_JOB_NODELIST")
+num_nodes=1 #$(echo "$nodes" | wc -l)
+process_idx=1 #$(echo "$nodes" | grep -n "$SLURMD_NODENAME" | cut -d: -f1)
 devices_per_node=32
-MASTER_ADDR=$(echo "$nodes" | head -n 1)
+MASTER_ADDR="localhost" #$(echo "$nodes" | head -n 1)
 MASTER_PORT=41000
 JAX_COORDINATOR_PORT=41001
 export NEURON_RT_ROOT_COMM_ID="${MASTER_ADDR}:${MASTER_PORT}"
 export NEURON_PJRT_PROCESSES_NUM_DEVICES=$(printf '%s,' $(seq 1 $num_nodes | xargs -I {} echo $devices_per_node) | sed 's/,$//')
 export NEURON_PJRT_PROCESS_INDEX=$((process_idx - 1))
+echo $NEURON_RT_ROOT_COMM_ID
+echo $NEURON_PJRT_PROCESSES_NUM_DEVICES
 export LD_LIBRARY_PATH="/opt/amazon/efa/lib/"
-export FI_LOG_LEVEL="warn"
+# export FI_LOG_LEVEL="warn"
 export FI_EFA_USE_DEVICE_RDMA="1"
 export FI_PROVIDER="efa"
 export FI_EFA_FORK_SAFE=1
 
-OUTPUT_DIR="/shared_new/apoorvgu/fs_drop/axlearn/c4_test/"
+OUTPUT_DIR="/home/ubuntu/axlearn/c4_test/"
 DATA_DIR="gs://axlearn-public/tensorflow_datasets"
 # Run the training script
 python3 -m axlearn.common.launch_trainer_main \

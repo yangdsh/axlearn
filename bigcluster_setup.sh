@@ -13,12 +13,11 @@ wget -qO - https://apt.repos.neuron.amazonaws.com/GPG-PUB-KEY-AMAZON-AWS-NEURON.
 
 # Update OS packages and install OS headers
 sudo apt-get update -y && sudo apt-get install -y linux-headers-$(uname -r)
-sudo apt-get remove -y aws-neuronx-devtools || true
-sudo apt-get remove -y aws-neuronx-tools aws-neuronx-collectives aws-neuronx-dkms aws-neuronx-runtime-lib
+# sudo apt-get remove -y aws-neuronx-devtools || true
+# sudo apt-get remove -y aws-neuronx-tools aws-neuronx-collectives aws-neuronx-dkms aws-neuronx-runtime-lib
 # Install Neuron OS packages and dependencies
-sudo dpkg -i /shared_new/ptoulme/axlearn/axlearn/axlearn/common/neuron_tests/aws-neuronx-runtime-lib-2.x.11048.0-061f19254.deb
-sudo dpkg -i /shared_new/ptoulme/axlearn/axlearn/axlearn/common/neuron_tests/aws-neuronx-collectives-2.x.11725.0-85e6cb643.deb
-#sudo dpkg -i aws-neuronx-runtime-lib-2.x.9937.0-b6de4480f.deb
+sudo dpkg -i /home/ubuntu/axlearn-drop2-0510/aws-neuronx-collectives-2.21.11.0-11007136e.deb
+sudo dpkg -i /home/ubuntu/axlearn-drop2-0510/aws-neuronx-runtime-lib-2.21.10.0-c150931c3.deb
 sudo apt-get -o Dpkg::Options::="--force-overwrite" install --reinstall --allow-downgrades -y aws-neuronx-dkms aws-neuronx-tools
 
 TOKEN=`curl -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600"` && INSTANCE_ID=$(curl -H "X-aws-ec2-metadata-token: $TOKEN" -s  http://169.254.169.254/latest/meta-data/instance-id)

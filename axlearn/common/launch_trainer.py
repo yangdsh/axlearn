@@ -89,6 +89,11 @@ def get_trainer_config(
             flag_values.config,
             config_module=f"axlearn.experiments.{flag_values.config_module}",
         )
+        logging.info(
+            "find config '%s' or module '%s'",
+            flag_values.config,
+            flag_values.config_module,
+        )
     trainer_config: SpmdTrainer.Config = trainer_config_fn()
     trainer_config.dir = trainer_config.dir or flag_values.trainer_dir
     if flag_values.mesh_selector is not None:
